@@ -20,6 +20,7 @@ from remme.shared.basic_client import BasicClient
 from remme.token.token_handler import TokenHandler
 
 from remme.protos.token_pb2 import Account
+from remme.protos.permission_pb2 import Document
 
 
 class TokenClient(BasicClient):
@@ -70,3 +71,8 @@ class TokenClient(BasicClient):
     def get_balance(self, address):
         account = self.get_account(address)
         return account.balance
+
+    def get_document(self, document_id):
+        document = Document()
+        document.ParseFromString(self.get_value(document_id))
+        return document
