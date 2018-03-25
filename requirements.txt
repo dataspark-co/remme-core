@@ -6,3 +6,5 @@ protobuf
 flask
 flask-restful
 flask-restful-swagger
+json-rpc
+requests

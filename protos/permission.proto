@@ -27,8 +27,7 @@ message PermissionMethod {
 
 message Access {
     string pub_container_key = 1;
-    string pub_hash_key = 2;
-    string access_key = 3;
+    string access_key = 2;
 }
 
 message Document {
@@ -39,8 +38,10 @@ message Document {
 
 message PermissionProtocol {
     string pub_container_key = 1;
-    string pub_hash_key = 2;
-    string access_key = 3;
-    string data = 4;
-    string document_id = 5;
+    string access_key = 2;
+    string data = 3;
+    string document_id = 4;
+    string grant_pub_container_key = 5;
+
+    repeated Access accesses = 6;
 }

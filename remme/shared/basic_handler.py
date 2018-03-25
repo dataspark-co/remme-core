@@ -14,6 +14,7 @@
 # ------------------------------------------------------------------------
 
 import hashlib
+import logging
 from google.protobuf.text_format import ParseError
 from sawtooth_processor_test.message_factory import MessageFactory
 from sawtooth_sdk.processor.exceptions import InternalError
@@ -21,6 +22,10 @@ from sawtooth_sdk.processor.handler import TransactionHandler
 from sawtooth_sdk.processor.exceptions import InvalidTransaction
 
 from remme.protos.transaction_pb2 import TransactionPayload
+
+
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.DEBUG)
 
 
 def get_data(context, pb_class, address):
@@ -76,6 +81,22 @@ class BasicHandler(TransactionHandler):
             namespace=self.namespaces[-1],
             signer=signer
         )
+
+    def apply_local(self, transaction, context):
+        state_processor = self.get_state_processor()
+        try:
+            data_pb = state_processor[transaction.method]['pb_class']()
+            data_pb.ParseFromString(transaction.data)
+            processor = state_processor[transaction.method]['processor']
+            updated_state = processor(context, data_pb.pub_container_key, data_pb)
+        except KeyError:
+            raise InvalidTransaction('Unknown value {} for the certificate operation type.'.
+                                     format(int(transaction.method)))
+        except ParseError:
+            raise InvalidTransaction('Cannot decode transaction payload')
+        log.error("Context: %s", context)
+        log.error("Updated state: %s", updated_state)
+        context.set_state({k: v.SerializeToString() for k, v in updated_state.items()})
 
     def apply(self, transaction, context):
         transaction_payload = TransactionPayload()

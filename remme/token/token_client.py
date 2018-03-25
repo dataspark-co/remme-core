@@ -14,13 +14,90 @@
 # ------------------------------------------------------------------------
 
 import json
+import logging
 
 from remme.protos.token_pb2 import TokenMethod, GenesisPayload, TransferPayload
+from remme.protos.permission_pb2 import PermissionMethod, PermissionProtocol
 from remme.shared.basic_client import BasicClient
-from remme.token.token_handler import TokenHandler
+from remme.token.token_handler import TokenHandler, PermissionHandler
+from remme.protos.transaction_pb2 import TransactionPayload
 
 from remme.protos.token_pb2 import Account
-from remme.protos.permission_pb2 import Document
+from remme.protos.permission_pb2 import Document, Access
+
+
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.DEBUG)
+
+
+class PermissionClient(BasicClient):
+    def __init__(self):
+        super().__init__(PermissionHandler)
+
+    def get_document(self, document_id, storage=None):
+        document = Document()
+        if storage is None:
+            storage = self
+        document.ParseFromString(storage.get_value(document_id))
+        return document
+
+    def get_access_list(self, document_id, storage=None):
+        document = Document()
+        if storage is None:
+            storage = self
+        document.ParseFromString(storage.get_value(document_id))
+        return document.accesses
+
+    def create_document(self, pub_container_key, document_id, data, access_key, storage=None):
+        if storage is None:
+            storage = self
+        proto = PermissionProtocol(
+            document_id=document_id,
+            data=data,
+            pub_container_key=pub_container_key,
+            access_key=access_key,
+        )
+        tr = self._send_transaction(PermissionMethod.CREATE_DOCUMENT, proto, [self.make_address_from_data(self._signer.get_public_key().as_hex())], storage)
+        return tr
+
+    def update_document(self, pub_container_key, document_id, data, access_list, storage=None):
+        if storage is None:
+            storage = self
+        proto = PermissionProtocol(
+            document_id=document_id,
+            data=data,
+            pub_container_key=pub_container_key,
+            accesses=[
+                Access(pub_container_key=access['pub_container_key'],
+                       access_key=access['access_key'])
+                for access in access_list
+            ],
+        )
+        tr = self._send_transaction(PermissionMethod.UPDATE_DOCUMENT, proto, [self.make_address_from_data(self._signer.get_public_key().as_hex())], storage)
+        return tr
+
+    def create_access(self, pub_container_key, document_id, grant_pub_container_key, storage=None):
+        if storage is None:
+            storage = self
+        proto = PermissionProtocol(
+            document_id=document_id,
+            pub_container_key=pub_container_key,
+            grant_pub_container_key=grant_pub_container_key,
+        )
+        tr = self._send_transaction(PermissionMethod.CREATE_ACCESS, proto, [self.make_address_from_data(self._signer.get_public_key().as_hex())], storage)
+        return tr
+
+    def _send_transaction(self, method, data, addresses, storage=None):
+        log.error(storage.handler)
+        if storage is not None and storage != self:
+            handler = storage.handler
+
+            trans = TransactionPayload()
+            trans.method = method
+            trans.data = data.SerializeToString()
+            handler.apply_local(trans, storage)
+            return data
+        return super()._send_transaction(method, data, addresses)
 
 
 class TokenClient(BasicClient):
@@ -71,8 +148,3 @@ class TokenClient(BasicClient):
     def get_balance(self, address):
         account = self.get_account(address)
         return account.balance
-
-    def get_document(self, document_id):
-        document = Document()
-        document.ParseFromString(self.get_value(document_id))
-        return document

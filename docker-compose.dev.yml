@@ -80,8 +80,10 @@ services:
     image: remme/remme-core-dev:latest
     depends_on:
       - rest-api
+    expose:
+      - 8080
     ports:
-      - '8080:8080'
+      - '8020:8080'
     volumes:
       - ./keys:/root/.sawtooth/keys
       - .:/root/remme
@@ -89,6 +91,24 @@ services:
       bash -c "
         pip3 install --upgrade /root/remme && \
         python3 -m remme.rest_api
+      "
+
+  remme-rpc-api:
+    image: remme/remme-core-dev:latest
+    depends_on:
+      - rest-api
+    expose:
+      - 8099
+    ports:
+      - '0.0.0.0:8021:8099'
+    volumes:
+      - ./keys:/root/.sawtooth/keys
+      - .:/root/remme
+    entrypoint: |
+      bash -c "
+        pip3 install --upgrade /root/remme && \
+        pip3 install json-rpc && \
+        python3 -m remme.json_rpc
       "
 
   shell:

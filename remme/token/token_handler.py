@@ -12,17 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ------------------------------------------------------------------------
-import base64
-import hashlib
 import uuid
-from Crypto import Random
-from Crypto.Cipher import AES
 import logging
-from collections import namedtuple
 from sawtooth_sdk.processor.exceptions import InvalidTransaction
 
 from remme.protos.token_pb2 import (
-    Account, GenesisStatus, TokenMethod, GenesisPayload, TransferPayload,
+    Account, GenesisStatus, TokenMethod, GenesisPayload, TransferPayload
+)
+from remme.protos.permission_pb2 import (
     PermissionMethod, Document, Access, PermissionProtocol
 )
 from remme.shared.basic_handler import *
@@ -36,42 +33,11 @@ FAMILY_NAME = 'token'
 FAMILY_VERSIONS = ['0.1']
 
 
-class AESCipher(object):
-
-    def __init__(self, key):
-        self.bs = 32
-        self.key = hashlib.sha256(key.encode()).digest()
-
-    def encrypt(self, raw):
-        raw = self._pad(raw)
-        iv = Random.new().read(AES.block_size)
-        cipher = AES.new(self.key, AES.MODE_CBC, iv)
-        return base64.b64encode(iv + cipher.encrypt(raw))
-
-    def decrypt(self, enc):
-        enc = base64.b64decode(enc)
-        iv = enc[:AES.block_size]
-        cipher = AES.new(self.key, AES.MODE_CBC, iv)
-        return self._unpad(cipher.decrypt(enc[AES.block_size:])).decode('utf-8')
-
-    def _pad(self, s):
-        return s + (self.bs - len(s) % self.bs) * chr(self.bs - len(s) % self.bs)
-
-    @staticmethod
-    def _unpad(s):
-        return s[:-ord(s[len(s) - 1:])]
-
-
 @singleton
 class PermissionHandler(BasicHandler):
     def __init__(self):
         super().__init__('permission', ['0.1'])
         self.zero_address = self.make_address(ZERO_ADDRESS)
-
-    def get_account_by_pub_key(self, context, pub_key):
-        address = self.make_address_from_data(pub_key)
-        account = get_data(context, Account, address)
-        return address, account
 
     def get_state_processor(self):
         return {
@@ -83,110 +49,89 @@ class PermissionHandler(BasicHandler):
                 'pb_class': PermissionProtocol,
                 'processor': self.update_document,
             },
-            PermissionMethod.READ_DOCUMENT: {
-                'pb_class': PermissionProtocol,
-                'processor': self.read_document,
-            },
             PermissionMethod.CREATE_ACCESS: {
                 'pb_class': PermissionProtocol,
                 'processor': self.create_access,
             },
-            PermissionMethod.UPDATE_LIST_ACCESS: {
-                'pb_class': PermissionProtocol,
-                'processor': self.update_list_access,
-            },
         }
 
     @staticmethod
-    def _create_access_pb(pub_key, pub_hash_key, access_key=None):
+    def _create_access_pb(pub_key, access_key=None):
         access = Access()
         access.pub_container_key = pub_key
-        access.pub_hash_key = pub_hash_key
         if access_key:
             access.access_key = access_key
         return access
 
     def create_document(self, context, pub_key, payload):
-        address, account = self.get_account_by_pub_key(context, pub_key)
+        address = self.make_address_from_data(pub_key)
         if self.zero_address == address:
             raise InvalidTransaction("Zero address cannot involve in any operation.")
 
-        account = get_data(context, Account, address)
-        if not account:
-            account = Account()
+        document = get_data(context, Document, payload.document_id)
+        if document:
+            raise InvalidTransaction("Document '%s' already exists." % payload.document_id)
 
         document = Document()
-        document.id = uuid.uuid4().hex
+        document.id = payload.document_id
         document.data = payload.data
-        document.accesses = [
-            self._create_access_pb(pub_key, payload.pub_hash_key,
-                                   payload.access_key)
-        ]
+        document.accesses.extend([
+            self._create_access_pb(pub_key, payload.access_key)
+        ])
 
         return {
-            address: account,
             document.id: document
         }
 
     def update_document(self, context, pub_key, payload):
-        address, account = self.get_account_by_pub_key(context, pub_key)
+        address = self.make_address_from_data(pub_key)
         if self.zero_address == address:
             raise InvalidTransaction("Zero address cannot involve in any operation.")
 
-        account = get_data(context, Account, address)
-        if not account:
-            account = Account()
-
-        document = get_data(context, Document, payload.id)
+        document = get_data(context, Document, payload.document_id)
         if not document:
-            raise InvalidTransaction("Document '%s' not found." % payload.id)
+            raise InvalidTransaction("Document '%s' not found." % payload.document_id)
 
-        document.data = payload.data
         for access in document.accesses:
             if access.pub_container_key == pub_key:
-                document.access_key = payload.access_key
+                break
+        else:
+            raise InvalidTransaction("User '%s' does not have access to update doc." %
+                                     (payload.document_id, payload.grant_pub_container_key))
+
+        document.data = payload.data
+        # try:
+        #     for i, access in enumerate(document.accesses):
+        #         del document.accesses[i]
+        #         i -= 1
+        # except Exception:
+        #     pass
+
+        document.accesses.MergeFrom(payload.accesses)
 
         return {
-            address: account,
             document.id: document
         }
 
     def create_access(self, context, pub_key, payload):
-        address, account = self.get_account_by_pub_key(context, pub_key)
+        address = self.make_address_from_data(pub_key)
         if self.zero_address == address:
             raise InvalidTransaction("Zero address cannot involve in any operation.")
 
-        document = get_data(context, Document, payload.id)
+        document = get_data(context, Document, payload.document_id)
         if not document:
-            raise InvalidTransaction("Document '%s' not found." % payload.id)
-
-        account = get_data(context, Account, address)
-        if not account:
-            account = Account()
-
-        document.accesses.append(
-            self._create_access_pb(payload.pub_container_key, payload.pub_hash_key))
-
-        return {
-            address: account,
-            document.id: document
-        }
-
-    def update_list_access(self, context, pub_key, payload):
-        address, account = self.get_account_by_pub_key(context, pub_key)
-        if self.zero_address == address:
-            raise InvalidTransaction("Zero address cannot involve in any operation.")
-
-        document = get_data(context, Document, payload.id)
-        if not document:
-            raise InvalidTransaction("Document '%s' not found." % payload.id)
+            raise InvalidTransaction("Document '%s' not found." % payload.document_id)
 
         for access in document.accesses:
-            if access.pub_container_key == pub_key:
-                document.access_key = payload.access_key
+            if access.pub_container_key == payload.grant_pub_container_key:
+                raise InvalidTransaction("Document '%s' for user '%s' already grant access." %
+                                         (payload.document_id, payload.grant_pub_container_key))
+
+        document.accesses.extend([
+            self._create_access_pb(payload.grant_pub_container_key)
+        ])
 
         return {
-            address: account,
             document.id: document
         }
 
