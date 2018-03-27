@@ -75,9 +75,7 @@ class PermissionHandler(BasicHandler):
         document = Document()
         document.id = payload.document_id
         document.data = payload.data
-        document.accesses.extend([
-            self._create_access_pb(pub_key, payload.access_key)
-        ])
+        document.accesses.MergeFrom(payload.accesses)
 
         return {
             document.id: document
@@ -92,20 +90,22 @@ class PermissionHandler(BasicHandler):
         if not document:
             raise InvalidTransaction("Document '%s' not found." % payload.document_id)
 
+        pp = None
         for access in document.accesses:
             if access.pub_container_key == pub_key:
+                pp = access.pub_container_key
                 break
-        else:
+        if not pp:
             raise InvalidTransaction("User '%s' does not have access to update doc." %
-                                     (payload.document_id, payload.grant_pub_container_key))
+                                     (pub_key))
 
         document.data = payload.data
-        # try:
-        #     for i, access in enumerate(document.accesses):
-        #         del document.accesses[i]
-        #         i -= 1
-        # except Exception:
-        #     pass
+        try:
+            for i, access in enumerate(document.accesses):
+                del document.accesses[i]
+                i -= 1
+        except Exception:
+            pass
 
         document.accesses.MergeFrom(payload.accesses)
 

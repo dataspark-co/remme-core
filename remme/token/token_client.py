@@ -48,14 +48,19 @@ class PermissionClient(BasicClient):
         document.ParseFromString(storage.get_value(document_id))
         return document.accesses
 
-    def create_document(self, pub_container_key, document_id, data, access_key, storage=None):
+    def create_document(self, pub_container_key, document_id, data, access_list, storage=None):
         if storage is None:
             storage = self
+        log.error(access_list)
         proto = PermissionProtocol(
             document_id=document_id,
             data=data,
             pub_container_key=pub_container_key,
-            access_key=access_key,
+            accesses=[
+                Access(pub_container_key=access['pub_container_key'],
+                       access_key=access['access_key'])
+                for access in access_list
+            ],
         )
         tr = self._send_transaction(PermissionMethod.CREATE_DOCUMENT, proto, [self.make_address_from_data(self._signer.get_public_key().as_hex())], storage)
         return tr
@@ -63,6 +68,7 @@ class PermissionClient(BasicClient):
     def update_document(self, pub_container_key, document_id, data, access_list, storage=None):
         if storage is None:
             storage = self
+        log.error(access_list)
         proto = PermissionProtocol(
             document_id=document_id,
             data=data,

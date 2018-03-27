@@ -72,7 +72,7 @@ def create_certificate():
 
 
 @dispatcher.add_method
-def get_document(document_id):
+def get_document(pub_container_key, document_id):
     data = perm_client.get_document(document_id, storage=storage)
     return json.dumps({
         'id': data.id,
@@ -105,7 +105,7 @@ def create_access(pub_container_key, document_id, grant_pub_container_key):
 
 
 @dispatcher.add_method
-def get_access_list(document_id):
+def get_access_list(pub_container_key, document_id):
     data = perm_client.get_access_list(document_id, storage=storage)
     return json.dumps({
         'accesses': [{'pub_container_key': el.pub_container_key, 'access_key': el.access_key} for el in data],
